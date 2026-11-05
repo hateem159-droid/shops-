@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f5c58">
+<link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
+<title>محلات الفرسان</title>
+<style>
+:root{--ink:#10232f;--bg:#f2f5f6;--line:#dbe3e6;--main:#0f5c58;--neg:#b42318;--pos:#117a45}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 Tajawal,system-ui,sans-serif;padding:env(safe-area-inset-top) 0 calc(70px + env(safe-area-inset-bottom))}
+header{background:var(--main);color:#fff;display:flex;justify-content:space-between;align-items:center;padding:10px 16px}
+header b{font-size:19px}
+.wrap{max-width:560px;margin:0 auto;padding:12px}
+h1{text-align:center;color:var(--main);margin:40px 0 16px}
+h3{margin:0 0 8px}
+.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px}
+label{display:block;font-size:14px;margin-bottom:8px}
+input,select{display:block;width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;margin-top:2px;margin-bottom:8px;background:#fff}
+button{font:inherit;background:var(--main);color:#fff;border:0;border-radius:8px;padding:11px 16px;width:100%}
+button.ghost{background:none;color:var(--main);width:auto;padding:6px 10px}
+header button.ghost{color:#fff}
+summary{display:flex;justify-content:space-between;font-weight:700;cursor:pointer}
+.r{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line)}
+.tot{border:0;font-size:18px}.sum{border:2px solid var(--main)}
+.pos{color:var(--pos)}.neg{color:var(--neg)}.err{color:var(--neg)}.ok{color:var(--pos)}
+nav{position:fixed;bottom:0;right:0;left:0;display:flex;background:#fff;border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{background:none;color:var(--ink);border-radius:0;flex:1;padding:14px 4px}
+nav button.on{color:var(--main);font-weight:700;box-shadow:inset 0 -3px var(--main)}
+</style></head><body><div id="app"></div>
+<script type="module">
+import{initializeApp}from"https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import{getAuth,signInWithEmailAndPassword,createUserWithEmailAndPassword,signOut,onAuthStateChanged}from"https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import{getFirestore,doc,getDoc,setDoc,getDocs,collection,writeBatch}from"https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+const cfg={apiKey:"AIzaSyAfMr8qYUxLc-wuLnay1_dpgVN5L3g_ljU",authDomain:"alfrsan-7e2d5.firebaseapp.com",projectId:"alfrsan-7e2d5",storageBucket:"alfrsan-7e2d5.firebasestorage.app",messagingSenderId:"576261591825",appId:"1:576261591825:web:4e87520e75ac02cc1b72b0"};
+const fb=initializeApp(cfg),auth=getAuth(fb),db=getFirestore(fb);
+const $=s=>document.querySelector(s),app=$('#app');
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const n=v=>Number(v)||0,fmt=v=>n(v).toLocaleString('en-US',{maximumFractionDigits:2});
+const today=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
+const em=u=>u.includes('@')?u.trim():u.trim().toLowerCase()+'@shops.app';
+const F=[['sales','المبيعات'],['purchases','المشتريات'],['expenses','المصروفات'],['cash','النقد'],['card','الشبكة'],['petty','النثريات'],['capital','رأس مال المحل']];
+let me=null,shops=[],tab='home',date=today(),creating=false;
+const errText=e=>{const c=e.code||'';return/invalid|wrong|not-found/.test(c)?'اسم المستخدم أو كلمة المرور غير صحيحة':c=='auth/email-already-in-use'?'اسم المستخدم مستخدم من قبل':c=='auth/weak-password'?'كلمة المرور لازم تكون 6 أحرف على الأقل':c=='auth/unauthorized-domain'?'الرابط غير مضاف في Authorized domains':c=='permission-denied'?'ما عندك صلاحية لهذي العملية':(c||e.message)};
+const head=t=>`<header><b>${esc(t)}</b><button class="ghost" id="out">خروج</button></header>`;
+
+function login(msg='',reg=false){
+app.innerHTML=`<div class="wrap"><h1>محلات الفرسان</h1><div class="card"><label>اسم المستخدم<input id="u" autocomplete="username" autocapitalize="none"></label><label>كلمة المرور<input id="p" type="password" autocomplete="current-password"></label><p class="err">${esc(msg)}</p><button id="go">${reg?'إنشاء حساب المالك':'دخول'}</button><button class="ghost" id="sw">${reg?'عندي حساب':'أول مرة؟ إنشاء حساب المالك'}</button></div></div>`;
+$('#sw').onclick=()=>login('',!reg);
+$('#go').onclick=async()=>{try{const u=em($('#u').value),p=$('#p').value;
+if(reg){creating=true;const c=await createUserWithEmailAndPassword(auth,u,p);const b=writeBatch(db);
+b.set(doc(db,'users',c.user.uid),{role:'owner',name:'المالك'});b.set(doc(db,'config','owner'),{uid:c.user.uid});await b.commit();creating=false;await start(c.user)}
+else await signInWithEmailAndPassword(auth,u,p)}catch(e){creating=false;login(errText(e),reg)}}}
+
+async function start(u){
+me=(await getDoc(doc(db,'users',u.uid))).data();
+if(!me){await signOut(auth);return login('الحساب غير مفعّل، كلّم المالك')}
+me.role=='owner'?owner():mgr()}
+
+async function mgr(){
+const sh=(await getDoc(doc(db,'shops',me.shopId))).data()?.name||'المحل';
+const d=(await getDoc(doc(db,'shops',me.shopId,'days',date))).data()||{};
+app.innerHTML=head(sh)+`<div class="wrap"><div class="card"><label>التاريخ<input id="dt" type="date" value="${date}"></label>${F.map(([k,l])=>`<label>${l}<input data-k="${k}" type="number" inputmode="decimal" value="${d[k]??''}"></label>`).join('')}<p id="m" class="ok"></p><button id="sv">حفظ اليوم</button></div></div>`}
+
+async function owner(){
+shops=(await getDocs(collection(db,'shops'))).docs.map(x=>({id:x.id,...x.data()}));
+const fx={};(await getDocs(collection(db,'fixed'))).forEach(x=>fx[x.id]=x.data());
+let body='';
+if(tab=='home'){
+const days=await Promise.all(shops.map(s=>getDoc(doc(db,'shops',s.id,'days',date))));
+const T={sales:0,purchases:0,expenses:0,cash:0,card:0,petty:0,fixed:0};
+const rows=shops.map((s,i)=>{const d=days[i].data()||{},f=fx[s.id]||{},fc=(n(f.rent)+n(f.elec)+n(f.salary))/30;
+F.slice(0,6).forEach(([k])=>T[k]+=n(d[k]));T.fixed+=fc;
+const net=n(d.sales)-n(d.purchases)-n(d.expenses)-n(d.petty)-fc;
+return`<details class="card"><summary><span>${esc(s.name)}</span><span>${fmt(d.sales)}</span></summary>${F.map(([k,l])=>`<div class="r"><span>${l}</span><b>${fmt(d[k])}</b></div>`).join('')}<div class="r"><span>التكاليف الثابتة اليومية</span><b>${fmt(fc)}</b></div><div class="r tot"><span>صافي الربح</span><b class="${net<0?'neg':'pos'}">${fmt(net)}</b></div></details>`}).join('');
+const tn=T.sales-T.purchases-T.expenses-T.petty-T.fixed;
+body=`<div class="card"><label>التاريخ<input id="dt" type="date" value="${date}"></label></div><div class="card sum"><h3>الإجمالي لكل المحلات</h3>${F.slice(0,6).map(([k,l])=>`<div class="r"><span>${l}</span><b>${fmt(T[k])}</b></div>`).join('')}<div class="r"><span>التكاليف الثابتة اليومية</span><b>${fmt(T.fixed)}</b></div><div class="r tot"><span>صافي الربح</span><b class="${tn<0?'neg':'pos'}">${fmt(tn)}</b></div></div>${rows||'<p class="card">أضف محلاتك من تبويب المحلات</p>'}`}
+if(tab=='shops')body=`<div class="card"><h3>محل جديد</h3><input id="sn" placeholder="اسم المحل"><button id="as">إضافة المحل</button></div><div class="card"><h3>حساب مدير محل</h3><select id="ms">${shops.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select><input id="mn" placeholder="اسم المدير"><input id="mu" placeholder="اسم المستخدم (إنجليزي)" autocapitalize="none"><input id="mp" placeholder="كلمة المرور (6 أحرف أو أكثر)"><p id="m" class="err"></p><button id="am">إنشاء الحساب</button></div>`;
+if(tab=='fixed')body=shops.map(s=>{const f=fx[s.id]||{};return`<div class="card" data-s="${s.id}"><h3>${esc(s.name)}</h3>${[['rent','الإيجار (شهرياً)'],['elec','الكهرباء (شهرياً)'],['salary','راتب العامل (شهرياً)']].map(([k,l])=>`<label>${l}<input data-f="${k}" type="number" inputmode="decimal" value="${f[k]??''}"></label>`).join('')}<button class="sf">حفظ</button></div>`}).join('')||'<p class="card">أضف محلات أولاً</p>';
+app.innerHTML=head('لوحة المالك')+`<div class="wrap">${body}</div><nav>${[['home','الملخص'],['shops','المحلات'],['fixed','التكاليف']].map(([t,l])=>`<button data-t="${t}" class="${tab==t?'on':''}">${l}</button>`).join('')}</nav>`}
+
+document.addEventListener('change',e=>{if(e.target.id=='dt'){date=e.target.value;me.role=='owner'?owner():mgr()}});
+document.addEventListener('click',async e=>{const t=e.target,id=t.id;
+try{
+if(id=='out')signOut(auth);
+else if(t.dataset.t){tab=t.dataset.t;owner()}
+else if(id=='sv'){const o={by:me.name||''};document.querySelectorAll('[data-k]').forEach(i=>o[i.dataset.k]=n(i.value));await setDoc(doc(db,'shops',me.shopId,'days',date),o);$('#m').textContent='انحفظ ✓'}
+else if(id=='as'){const v=$('#sn').value.trim();if(v){await setDoc(doc(collection(db,'shops')),{name:v});owner()}}
+else if(id=='am'){const s=$('#ms').value,nm=$('#mn').value.trim(),u=$('#mu').value,p=$('#mp').value;if(!s||!nm||!u||!p){$('#m').textContent='عبّ كل الخانات';return}
+const a2=getAuth(initializeApp(cfg,'s'+Date.now()));const c=await createUserWithEmailAndPassword(a2,em(u),p);
+await setDoc(doc(db,'users',c.user.uid),{role:'manager',shopId:s,name:nm});await signOut(a2);$('#m').className='ok';$('#m').textContent='تم إنشاء الحساب ✓';}
+else if(t.classList.contains('sf')){const c=t.closest('.card'),o={};c.querySelectorAll('[data-f]').forEach(i=>o[i.dataset.f]=n(i.value));await setDoc(doc(db,'fixed',c.dataset.s),o);t.textContent='انحفظ ✓'}
+}catch(x){const m=$('#m');m?m.textContent=errText(x):alert(errText(x))}});
+
+onAuthStateChanged(auth,u=>{if(creating)return;u?start(u):login()});
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');
+</script></body></html>
